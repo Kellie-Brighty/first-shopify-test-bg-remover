@@ -125,8 +125,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return Response.json({ success: true, message: "Image saved to product successfully!" });
     } catch (error: unknown) {
        console.error("Error saving image to product:", error);
+       const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
        return Response.json(
-         { error: "Failed to save image to product. Check server logs." },
+         { error: `Failed to save image to product. ${errorMessage}` },
          { status: 500 }
        );
     }
@@ -195,7 +196,8 @@ export const links = () => [
 
 export default function Index() {
   const { products } = useLoaderData<typeof loader>();
-  const fetcher = useFetcher<typeof action>();
+  const removeBgFetcher = useFetcher<typeof action>();
+  const saveProductFetcher = useFetcher<typeof action>();
   const shopify = useAppBridge();
   
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -205,16 +207,30 @@ export default function Index() {
   const [isDragging, setIsDragging] = useState(false);
 
   const isLoading = 
-    ["loading", "submitting"].includes(fetcher.state) &&
-    fetcher.formMethod === "POST";
+    ["loading", "submitting"].includes(removeBgFetcher.state) &&
+    removeBgFetcher.formMethod === "POST";
+    
+  const isSaving = 
+    ["loading", "submitting"].includes(saveProductFetcher.state) &&
+    saveProductFetcher.formMethod === "POST";
 
   useEffect(() => {
-    if (fetcher.data && "error" in fetcher.data) {
-      shopify.toast.show(fetcher.data.error as string, { isError: true });
-    } else if (fetcher.data && "success" in fetcher.data) {
+    // Handle remove BG fetcher toasts
+    if (removeBgFetcher.data && "error" in removeBgFetcher.data) {
+      shopify.toast.show(removeBgFetcher.data.error as string, { isError: true });
+    } else if (removeBgFetcher.data && "success" in removeBgFetcher.data) {
       shopify.toast.show("Background removed successfully!");
     }
-  }, [fetcher.data, shopify]);
+  }, [removeBgFetcher.data, shopify]);
+
+  useEffect(() => {
+    // Handle save product fetcher toasts
+    if (saveProductFetcher.data && "error" in saveProductFetcher.data) {
+      shopify.toast.show(saveProductFetcher.data.error as string, { isError: true });
+    } else if (saveProductFetcher.data && "success" in saveProductFetcher.data) {
+      shopify.toast.show("Image saved to product successfully!");
+    }
+  }, [saveProductFetcher.data, shopify]);
 
   const processFile = (file: File) => {
     setSelectedImageUrl(null);
@@ -264,7 +280,7 @@ export default function Index() {
     } else if (selectedImageUrl) {
       formData.append("imageUrl", selectedImageUrl);
     }
-    fetcher.submit(formData, { method: "POST", encType: "multipart/form-data" });
+    removeBgFetcher.submit(formData, { method: "POST", encType: "multipart/form-data" });
   };
 
   const clearSelection = (e?: React.MouseEvent) => {
@@ -290,14 +306,14 @@ export default function Index() {
   };
 
   const handleSaveToProduct = () => {
-    if (!fetcher.data || !("processedImageBase64" in fetcher.data) || !selectedProductId) return;
+    if (!removeBgFetcher.data || !("processedImageBase64" in removeBgFetcher.data) || !selectedProductId) return;
     
     const formData = new FormData();
     formData.append("intent", "saveToProduct");
     formData.append("productId", selectedProductId);
-    formData.append("base64Image", (fetcher.data as { processedImageBase64: string }).processedImageBase64);
+    formData.append("base64Image", (removeBgFetcher.data as { processedImageBase64: string }).processedImageBase64);
     
-    fetcher.submit(formData, { method: "POST" });
+    saveProductFetcher.submit(formData, { method: "POST" });
   };
 
   return (
@@ -378,7 +394,7 @@ export default function Index() {
           </button>
         </section>
 
-        {(previewUrl || (fetcher.data && "success" in fetcher.data)) && (
+        {(previewUrl || (removeBgFetcher.data && "success" in removeBgFetcher.data)) && (
           <section className="results-section">
             <h2 className="results-title">
               Results
@@ -394,7 +410,7 @@ export default function Index() {
                 </div>
               )}
               
-              {fetcher.data && "success" in fetcher.data && (
+              {removeBgFetcher.data && "success" in removeBgFetcher.data && (
                 <div className="result-card glass-inner">
                   <h3>
                     Processed Image
@@ -405,19 +421,19 @@ export default function Index() {
                   </h3>
                   <div className="image-preview-container transparent-bg" style={{ padding: "0" }}>
                      <img
-                       src={`data:image/png;base64,${(fetcher.data as { processedImageBase64?: string }).processedImageBase64}`}
+                       src={`data:image/png;base64,${(removeBgFetcher.data as { processedImageBase64?: string }).processedImageBase64}`}
                        alt="Result without background"
                        style={{ background: "transparent" }}
                      />
                   </div>
                   {selectedProductId && (
                     <button
-                      className={`btn-primary ${isLoading ? "loading" : ""}`}
+                      className={`btn-primary ${isSaving ? "loading" : ""}`}
                       style={{ width: "100%", padding: "0.75rem 1rem", fontSize: "1rem" }}
                       onClick={handleSaveToProduct}
-                      disabled={isLoading}
+                      disabled={isSaving}
                     >
-                      {isLoading ? "Saving" : "Save to Store Product"}
+                      {isSaving ? "Saving" : "Save to Store Product"}
                     </button>
                   )}
                 </div>
