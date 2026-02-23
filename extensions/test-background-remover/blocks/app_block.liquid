@@ -1,0 +1,36 @@
+<div class="bg-remover-container" style="padding: 20px; border: 1px dashed #ccc; text-align: center;">
+  <h3>Remove Image Background</h3>
+  <input type="file" id="image-input" accept="image/*">
+  <button id="remove-bg-btn" style="margin-top: 10px; padding: 8px 16px; cursor: pointer;">
+    Process Image
+  </button>
+  <div id="result-container" style="margin-top: 20px;"></div>
+</div>
+
+<script>
+document.getElementById('remove-bg-btn').addEventListener('click', async () => {
+  const fileInput = document.getElementById('image-input');
+  if (!fileInput.files[0]) return alert("Please select a file");
+
+  const formData = new FormData();
+  formData.append('image', fileInput.files[0]);
+
+  // We send the image to our app's backend proxy
+  const response = await fetch('/apps/bg-remover-proxy/remove', {
+    method: 'POST',
+    body: formData
+  });
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  document.getElementById('result-container').innerHTML = `<img src="${url}" style="max-width: 100%;">`;
+});
+</script>
+
+{% schema %}
+{
+  "name": "Background Remover",
+  "target": "section",
+  "settings": []
+}
+{% endschema %}
