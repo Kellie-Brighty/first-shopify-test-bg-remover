@@ -82,6 +82,76 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   await authenticate.admin(request);
 
   const formData = await request.formData();
+  const intent = formData.get("intent") as string | null;
+
+  // Handle uploading the processed image directly back to a Product
+  if (intent === "saveToProduct") {
+    const productIdGid = formData.get("productId") as string;
+    const base64Image = formData.get("base64Image") as string;
+
+    if (!productIdGid || !base64Image) {
+      return Response.json({ error: "Missing required fields for saving to product." }, { status: 400 });
+    }
+
+    try {
+      const { admin } = await authenticate.admin(request);
+      
+      const response = await admin.graphql(
+        `#graphql
+        mutation productUpdateMedia($input: ProductUpdateInput!, $media: [CreateMediaInput!]) {
+          productUpdate(product: $input, media: $media) {
+            product {
+              id
+              media(first: 5) {
+                edges {
+                  node {
+                    preview {
+                      image {
+                        url
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }`,
+        {
+          variables: {
+            input: {
+              id: productIdGid,
+            },
+            media: [
+              {
+                originalSource: `data:image/png;base64,${base64Image}`,
+                alt: "Processed without background",
+                mediaContentType: "IMAGE",
+              },
+            ],
+          },
+        }
+      );
+      
+      const responseJson = await response.json();
+      
+      if (responseJson.data?.productUpdate?.userErrors?.length > 0) {
+        throw new Error(responseJson.data.productUpdate.userErrors[0].message);
+      }
+      
+      return Response.json({ success: true, message: "Image saved to product successfully!" });
+    } catch (error: unknown) {
+       console.error("Error saving image to product:", error);
+       return Response.json(
+         { error: "Failed to save image to product." },
+         { status: 500 }
+       );
+    }
+  }
+
   const imageFile = formData.get("image") as File | null;
   const imageUrl = formData.get("imageUrl") as string | null;
 
@@ -150,6 +220,7 @@ export default function Index() {
   
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -167,6 +238,7 @@ export default function Index() {
 
   const processFile = (file: File) => {
     setSelectedImageUrl(null);
+    setSelectedProductId(null);
     setSelectedFile(file);
     const objectUrl = URL.createObjectURL(file);
     setPreviewUrl(objectUrl);
@@ -222,6 +294,7 @@ export default function Index() {
     }
     setSelectedFile(null);
     setSelectedImageUrl(null);
+    setSelectedProductId(null);
     setPreviewUrl(null);
     
     // Clear the input value so the same file can be selected again
@@ -229,10 +302,22 @@ export default function Index() {
     if (fileInput) fileInput.value = "";
   };
 
-  const selectStoreProduct = (url: string) => {
+  const selectStoreProduct = (url: string, id: string) => {
     clearSelection();
     setSelectedImageUrl(url);
+    setSelectedProductId(id);
     setPreviewUrl(url); // Show the URL as the preview directly
+  };
+
+  const handleSaveToProduct = () => {
+    if (!fetcher.data || !("processedImageBase64" in fetcher.data) || !selectedProductId) return;
+    
+    const formData = new FormData();
+    formData.append("intent", "saveToProduct");
+    formData.append("productId", selectedProductId);
+    formData.append("base64Image", (fetcher.data as { processedImageBase64: string }).processedImageBase64);
+    
+    fetcher.submit(formData, { method: "POST" });
   };
 
   return (
@@ -251,7 +336,7 @@ export default function Index() {
                 <button
                   key={p.id}
                   className={`product-thumbnail glass-inner ${selectedImageUrl === p.imageUrl ? 'selected' : ''}`}
-                  onClick={() => selectStoreProduct(p.imageUrl)}
+                  onClick={() => selectStoreProduct(p.imageUrl, p.id)}
                   type="button"
                 >
                   <img src={p.imageUrl} alt={p.imageAlt} />
@@ -345,6 +430,16 @@ export default function Index() {
                        style={{ background: "transparent" }}
                      />
                   </div>
+                  {selectedProductId && (
+                    <button
+                      className={`btn-primary ${isLoading ? "loading" : ""}`}
+                      style={{ width: "100%", padding: "0.75rem 1rem", fontSize: "1rem" }}
+                      onClick={handleSaveToProduct}
+                      disabled={isLoading}
+                    >
+                      {isLoading ? "Saving" : "Save to Store Product"}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
