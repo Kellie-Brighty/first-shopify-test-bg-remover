@@ -9,6 +9,11 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 
+// Helper function to extract product ID from a standard GraphQL GID string
+function extractIdFromGid(gid: string): string {
+  return gid.split("/").pop() || "";
+}
+
 interface ProductEdge {
   node: {
     id: string;
@@ -94,59 +99,34 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
 
     try {
-      const { admin } = await authenticate.admin(request);
+      const { session } = await authenticate.admin(request);
+      const cleanId = extractIdFromGid(productIdGid);
       
-      const response = await admin.graphql(
-        `#graphql
-        mutation productUpdateMedia($input: ProductUpdateInput!, $media: [CreateMediaInput!]) {
-          productUpdate(product: $input, media: $media) {
-            product {
-              id
-              media(first: 5) {
-                edges {
-                  node {
-                    preview {
-                      image {
-                        url
-                      }
-                    }
-                  }
-                }
-              }
-            }
-            userErrors {
-              field
-              message
-            }
+      const response = await fetch(`https://${session.shop}/admin/api/2024-10/products/${cleanId}/images.json`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": session.accessToken || "",
+        },
+        body: JSON.stringify({
+          image: {
+            attachment: base64Image,
+            filename: "processed-image.png",
           }
-        }`,
-        {
-          variables: {
-            input: {
-              id: productIdGid,
-            },
-            media: [
-              {
-                originalSource: `data:image/png;base64,${base64Image}`,
-                alt: "Processed without background",
-                mediaContentType: "IMAGE",
-              },
-            ],
-          },
-        }
-      );
+        }),
+      });
       
       const responseJson = await response.json();
       
-      if (responseJson.data?.productUpdate?.userErrors?.length > 0) {
-        throw new Error(responseJson.data.productUpdate.userErrors[0].message);
+      if (!response.ok || responseJson.errors) {
+        throw new Error(JSON.stringify(responseJson.errors || "Failed to upload image via REST API"));
       }
       
       return Response.json({ success: true, message: "Image saved to product successfully!" });
     } catch (error: unknown) {
        console.error("Error saving image to product:", error);
        return Response.json(
-         { error: "Failed to save image to product." },
+         { error: "Failed to save image to product. Check server logs." },
          { status: 500 }
        );
     }
